@@ -136,6 +136,13 @@ async def post_events_batch(payload: EventsBatchIn, request: Request) -> EventsB
     policy_bumped = False
     new_version: int | None = None
 
+    # Phase 2A known limitation: when a single batch causes policy bumps in
+    # multiple scopes, EventsBatchAck reports only the LAST scope's version
+    # number — the `new_version` variable is overwritten each iteration.
+    # In practice almost every batch is single-scope, so the gap is rarely
+    # hit. Phase 2A.x cleanup will change `new_policy_version: int | None`
+    # to `new_policy_versions: dict[str, int]` (a {scope_key: version} map)
+    # along with a wire-compat migration.
     for scope_key, scope_events in bucketed.items():
         active = await _read_active_policy(pool, scope_key)
         baseline = RoutingPolicy(

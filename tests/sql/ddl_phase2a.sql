@@ -111,7 +111,12 @@ CREATE INDEX idx_routing_events_batch ON kairos_evolve.routing_events (batch_id)
 -- Role
 -- ----------------------------------------------------------------------------
 
-CREATE ROLE kairos_evolve_api NOLOGIN;
+DO $$
+BEGIN
+  CREATE ROLE kairos_evolve_api NOLOGIN;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END
+$$;
 
 GRANT USAGE ON SCHEMA kairos_evolve TO kairos_evolve_api;
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA kairos_evolve TO kairos_evolve_api;

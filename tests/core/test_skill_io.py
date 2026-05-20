@@ -39,5 +39,5 @@ def test_read_prompt_returns_file_text(fake_kairos_repo):
 
 def test_read_prompt_raises_for_missing_file(fake_kairos_repo):
     skill_dir = find_skill("statute-compare", kairos_repo=fake_kairos_repo)
-    with pytest.raises(FileNotFoundError, match="no-such-prompt.md"):
+    with pytest.raises(FileNotFoundError, match=r"no-such-prompt\.md"):
         read_prompt(skill_dir, "no-such-prompt.md")

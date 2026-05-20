@@ -1,0 +1,29 @@
+{
+  "body": {
+    "alpha": 1,
+    "beta": 2,
+    "gamma": [
+      3,
+      4
+    ]
+  },
+  "expected": {
+    "body_sha256": "46d0d16bef620dc1dd0402ce42c3e4d0ab6e4cfbab67b5050144aef4bfb1bbc7",
+    "reordered_body": {
+      "alpha": 1,
+      "beta": 2,
+      "gamma": [
+        3,
+        4
+      ]
+    },
+    "signature": "6/pQG/ZyRNubg4loxSdA+s9ESKbh2dgUqSJKDW2TcSlv+u/GSNkSPxy6nnSFfdqoloYSV0W037WXLeu9K5ArCA=="
+  },
+  "key_id": "K_test_primary",
+  "kind": "field_order_stable",
+  "name": "field reordering yields same canonical hash",
+  "nonce_b64": "MDEyMzQ1Njc4OWFiY2RlZg==",
+  "private_key_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+  "service_id": "kairos-test",
+  "ts": "2026-05-19T12:00:00+00:00"
+}

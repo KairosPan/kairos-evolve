@@ -1,0 +1,18 @@
+{
+  "body": {
+    "x": 1
+  },
+  "expected": {
+    "body_sha256": "5041bf1f713df204784353e82f6a4a535931cb64f1f4b4a5aeaffcb720918b22",
+    "error_substring": "expired",
+    "signature": "WOm1DAOpJnIC8a9bli7Wy7KVD7rLFe6xZHs7eNOrpjDWMazeLgjQqssv1uwOxpqazJ72lzOqRzI81k7Qe2xBDA=="
+  },
+  "key_id": "K_test_primary",
+  "kind": "expired_rejected",
+  "name": "rejects when ts older than TTL",
+  "nonce_b64": "MDEyMzQ1Njc4OWFiY2RlZg==",
+  "private_key_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+  "service_id": "kairos-test",
+  "ts": "2026-05-19T11:50:00+00:00",
+  "verify_at": "2026-05-19T12:00:00+00:00"
+}

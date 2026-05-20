@@ -1,0 +1,21 @@
+{
+  "expected": {
+    "merkle_root": "5b19791d38c73d2747a2f04a4b71b3a20797217d1768f4dfe72f32bc41377f6f"
+  },
+  "kind": "batch_merkle",
+  "members": [
+    {
+      "event_id": "ev-1",
+      "skill": "a"
+    },
+    {
+      "event_id": "ev-2",
+      "skill": "b"
+    },
+    {
+      "event_id": "ev-3",
+      "skill": "c"
+    }
+  ],
+  "name": "merkle root over 3 events"
+}

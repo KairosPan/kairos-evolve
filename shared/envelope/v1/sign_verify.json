@@ -1,0 +1,17 @@
+{
+  "body": {
+    "action": "routing.policy.activate",
+    "scope": "skill:statute-compare"
+  },
+  "expected": {
+    "body_sha256": "f738940fbb0c03d8b7fa8c2eba76e16ada9ae4084273dc40667ce830379f1034",
+    "signature": "oeeHYBBy1kSXq4Xu56lJJUABbRtbI287bJbm/uy7Oh6W1OmAvQ12h6ZAzT0KaVuc/21CCzPF+bUCfTyAmgEAAQ=="
+  },
+  "key_id": "K_test_primary",
+  "kind": "sign_verify",
+  "name": "basic sign+verify",
+  "nonce_b64": "MDEyMzQ1Njc4OWFiY2RlZg==",
+  "private_key_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+  "service_id": "kairos-test",
+  "ts": "2026-05-19T12:00:00+00:00"
+}

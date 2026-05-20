@@ -1,0 +1,22 @@
+{
+  "body": {
+    "action": "ping",
+    "value": 1
+  },
+  "expected": {
+    "body_sha256": "52c6ee04e49f3ae32e655c3d226359a28eb536320e0f504179b054bf33ab1709",
+    "error_substring": "body_sha256",
+    "signature": "Z1PCIVg1LFrqx5bWS6DQU35k/xkneSr4+yoCJvtULfgHTHAgZ/z1UPdwViJ2gHSw8ZtIYicWYKY+tZ90QpuQCA==",
+    "tampered_body": {
+      "action": "drop_table",
+      "value": 1
+    }
+  },
+  "key_id": "K_test_primary",
+  "kind": "tampered_rejected",
+  "name": "rejects body tampering",
+  "nonce_b64": "MDEyMzQ1Njc4OWFiY2RlZg==",
+  "private_key_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+  "service_id": "kairos-test",
+  "ts": "2026-05-19T12:00:00+00:00"
+}

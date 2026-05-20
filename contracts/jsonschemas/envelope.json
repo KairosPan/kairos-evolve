@@ -1,0 +1,52 @@
+{
+  "$defs": {
+    "EnvelopeV1": {
+      "description": "The signed envelope carried on every cross-service action.",
+      "properties": {
+        "body_sha256": {
+          "title": "Body Sha256",
+          "type": "string"
+        },
+        "key_id": {
+          "title": "Key Id",
+          "type": "string"
+        },
+        "nonce": {
+          "title": "Nonce",
+          "type": "string"
+        },
+        "service_id": {
+          "title": "Service Id",
+          "type": "string"
+        },
+        "signature": {
+          "title": "Signature",
+          "type": "string"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^v1$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "key_id",
+        "service_id",
+        "ts",
+        "nonce",
+        "body_sha256",
+        "signature"
+      ],
+      "title": "EnvelopeV1",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "kairos.optimizer.contracts.envelope"
+}

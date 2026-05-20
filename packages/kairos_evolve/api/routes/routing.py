@@ -16,7 +16,7 @@ import json
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -67,6 +67,12 @@ async def post_events_batch(payload: EventsBatchIn, request: Request) -> EventsB
     pool = request.app.state.pool
     clock = request.app.state.clock
     settings = request.app.state.settings
+
+    if len(payload.events) > settings.routing_event_batch_max_size:
+        raise HTTPException(
+            status_code=413,
+            detail=f"batch too large: {len(payload.events)} > {settings.routing_event_batch_max_size}",
+        )
 
     async with pool.connection() as aconn:
         cur = aconn.cursor()

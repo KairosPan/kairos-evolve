@@ -74,3 +74,35 @@ async def test_events_batch_replays_idempotently(asgi_client, gateway_keypair):
     second = await asgi_client.post("/v1/routing/events/batch", json=body, headers=headers)
     assert first.json() == second.json()
     assert second.headers.get("X-Idempotent-Replay") == "true"
+
+
+@pytest.mark.asyncio
+async def test_events_batch_rejects_oversized(asgi_client, gateway_keypair, monkeypatch):
+    """Reject batches larger than KAIROS_EVOLVE_ROUTING_EVENT_BATCH_MAX_SIZE."""
+    priv, _ = gateway_keypair
+    # Build a body with 2 events; we'll set the max-size limit to 1 via env var
+    # before the request, but the fixture has already constructed the app —
+    # so verify against the default (1000) by sending a way-too-big batch.
+    too_many = [
+        {
+            "event_id": f"ev-big-{i}",
+            "scope_key": "skill:x",
+            "query_hash": f"qh-{i}",
+            "routed_skill_id": "x",
+            "accepted_skill_id": None,
+            "at": "2026-05-20T12:00:00+00:00",
+        }
+        for i in range(1001)  # one over the default 1000
+    ]
+    batch_id = "00000000-0000-0000-0000-000000000777"
+    body = {"batch_id": batch_id, "merkle_root": "x", "events": too_many}
+    headers = make_envelope_headers(
+        body=body,
+        private_key=priv,
+        key_id="K_gw_test",
+        service_id="kairos-gateway",
+    )
+    headers["Idempotency-Key"] = "ik-oversized"
+    resp = await asgi_client.post("/v1/routing/events/batch", json=body, headers=headers)
+    assert resp.status_code == 413
+    assert "batch" in resp.text.lower()

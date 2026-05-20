@@ -68,6 +68,15 @@ def evolve_prompts(
 
     Returns an EvolveResult describing baseline + winner (or None) + explored
     candidates. Does NOT write anything to disk — the CLI does that.
+
+    Note: when `runner` is a real `KairosSubprocessRunner`, the runner sees
+    the original on-disk prompt (NOT the candidate text), since Phase 1 never
+    mutates the kairos checkout. This means real execution feedback differentiates
+    candidates only via the `scorer` callback, which receives both `baseline_text`
+    and `candidate_text` directly. To make a runner observe the candidate, write
+    candidate.new_text to skill_dir/prompts/<name> before calling runner.run —
+    Phase 1 deliberately does not do this so that the kairos checkout stays
+    pristine and human review happens against the baseline. See spec §4.2 L1.
     """
     eval_inputs = eval_inputs or {}
     skill_dir = find_skill(skill_name, kairos_repo=kairos_repo)

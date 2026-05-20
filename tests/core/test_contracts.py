@@ -1,4 +1,4 @@
-"""contracts module re-exports — Phase 1 surface."""
+"""contracts module re-exports — Phase 1 + Phase 2A surface."""
 
 
 def test_contracts_root_reexports_envelope():
@@ -13,6 +13,8 @@ def test_contracts_root_reexports_envelope():
         "EnvelopeVerifyError",
         "DEFAULT_TTL",
         "FUTURE_SKEW",
+        "RoutingEvent",
+        "RoutingPolicy",
     }
     actual = set(contracts.__all__)
     missing = expected - actual

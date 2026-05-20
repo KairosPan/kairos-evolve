@@ -1,0 +1,66 @@
+{
+  "$defs": {
+    "RoutingEvent": {
+      "description": "A single routing outcome: which skill the router picked, which the user accepted.",
+      "properties": {
+        "accepted_skill_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accepted Skill Id"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "query": {
+          "title": "Query",
+          "type": "string"
+        },
+        "routed_skill_id": {
+          "title": "Routed Skill Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query",
+        "routed_skill_id"
+      ],
+      "title": "RoutingEvent",
+      "type": "object"
+    },
+    "RoutingPolicy": {
+      "description": "Per-skill biases the SkillRouter blends with semantic match.\n\n`description_weights[skill_id]` is multiplied into the description-match score.\nMissing keys are treated as 1.0 by `OptimizerL3` at lookup time.\n\n`trigger_hints[skill_id]` are extra phrases appended to the routing scoring\ndescription without modifying SKILL.md frontmatter.",
+      "properties": {
+        "description_weights": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Description Weights",
+          "type": "object"
+        },
+        "trigger_hints": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Trigger Hints",
+          "type": "object"
+        }
+      },
+      "title": "RoutingPolicy",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "kairos.optimizer.contracts.routing"
+}

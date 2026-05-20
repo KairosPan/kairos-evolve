@@ -1,11 +1,9 @@
 """Cross-service wire contracts.
 
-Phase 1 only consumes EnvelopeV1 (used by api/envelope-verifying middleware
-in Phase 2+; in Phase 1 it is exercised by the cross-repo fixture tests).
-
-L3-L6 contracts (RoutingPolicy, ShadowRecord, SynthesisProposal, L6Proposal)
-land here in their respective implementation phases when api routes consume
-them.
+Phase 1 shipped EnvelopeV1.
+Phase 2A adds RoutingEvent + RoutingPolicy (consumed by the L3 routing API).
+Later phases will add ShadowRecord (L4), SynthesisProposal (L5),
+L6Proposal (L6) as their consumers land.
 """
 
 from __future__ import annotations
@@ -20,12 +18,15 @@ from kairos_evolve.core.envelope import (
     sign_envelope,
     verify_envelope,
 )
+from kairos_evolve.core.routing_contracts import RoutingEvent, RoutingPolicy
 
 __all__ = [
     "DEFAULT_TTL",
     "FUTURE_SKEW",
     "EnvelopeV1",
     "EnvelopeVerifyError",
+    "RoutingEvent",
+    "RoutingPolicy",
     "canonical_json",
     "merkle_root",
     "sign_envelope",

@@ -5,6 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pytest_postgresql import factories
+
+postgresql_proc = factories.postgresql_proc(port=None)
 
 
 @pytest.fixture
@@ -39,3 +42,19 @@ def fake_kairos_repo(tmp_path: Path) -> Path:
     )
 
     return tmp_path
+
+
+@pytest.fixture
+def evolve_db(postgresql):
+    """Fresh Postgres per test with Phase 2A DDL applied.
+
+    Yields a psycopg connection. Test runs as the DB owner (superuser-equivalent
+    in pytest-postgresql), NOT as kairos_evolve_api — that role exists but is
+    referenced via SET LOCAL ROLE in routing_store tests that explicitly want to
+    verify role-level grant behavior.
+    """
+    ddl_path = Path(__file__).resolve().parent / "sql" / "ddl_phase2a.sql"
+    with postgresql.cursor() as cur:
+        cur.execute(ddl_path.read_text())
+    postgresql.commit()
+    yield postgresql

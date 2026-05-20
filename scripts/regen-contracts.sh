@@ -6,7 +6,7 @@
 #
 # Or invoke from this repo's root with $KAIROS_REPO set in environment.
 #
-# Phase 1 only mirrors envelope.json from contracts/jsonschemas/ and the
+# Phase 1+2A mirrors envelope.json and routing.json from contracts/jsonschemas/ and the
 # 5 envelope/v1/*.json fixtures. L3-L6 schemas are pulled in their respective
 # implementation phases when their consumers land.
 
@@ -25,10 +25,12 @@ fi
 
 THIS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Mirror jsonschemas (Phase 1: envelope only)
+# Mirror jsonschemas (Phase 1+2A: envelope + routing)
 mkdir -p "$THIS_DIR/contracts/jsonschemas"
-cp "$KAIROS_REPO/packages/harness/src/kairos_harness/optimizer/contracts/jsonschemas/envelope.json" \
-   "$THIS_DIR/contracts/jsonschemas/envelope.json"
+for schema in envelope routing; do
+  cp "$KAIROS_REPO/packages/harness/src/kairos_harness/optimizer/contracts/jsonschemas/${schema}.json" \
+     "$THIS_DIR/contracts/jsonschemas/${schema}.json"
+done
 
 # Mirror envelope/v1 fixtures
 mkdir -p "$THIS_DIR/shared/envelope/v1"
@@ -40,4 +42,4 @@ done
 # Print provenance so the commit message can record what was synced
 ( cd "$KAIROS_REPO" && echo "synced from kairos $(git rev-parse HEAD) on $(date -u +%FT%TZ)" )
 
-echo "OK: mirrored 1 jsonschema + 5 envelope fixtures"
+echo "OK: mirrored 2 jsonschemas + 5 envelope fixtures"

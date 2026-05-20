@@ -32,10 +32,19 @@ _SECRET_PATTERNS = re.compile(
 )
 
 _SAFETY_KEYS_FORBIDDEN_WEAKENING = {
-    "citation_verification": {"required": {"advisory", "disabled"}, "advisory": {"disabled"}},
-    "jurisdiction_consistency": {"enforced": {"advisory", "disabled"}, "advisory": {"disabled"}},
-    "matter_scope": {"enforced": {"advisory", "disabled"}, "advisory": {"disabled"}},
-    "upl_check": {"required": {"not-applicable"}},
+    "citation_verification": {
+        "required": {"advisory", "disabled", "not-applicable"},
+        "advisory": {"disabled", "not-applicable"},
+    },
+    "jurisdiction_consistency": {
+        "enforced": {"advisory", "disabled", "not-applicable"},
+        "advisory": {"disabled", "not-applicable"},
+    },
+    "matter_scope": {
+        "enforced": {"advisory", "disabled", "not-applicable"},
+        "advisory": {"disabled", "not-applicable"},
+    },
+    "upl_check": {"required": {"not-applicable"}},  # already correct
 }
 
 _RISK_TIER_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}

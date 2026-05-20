@@ -152,3 +152,25 @@ def test_run_skill_artifact_gates_full_pass(fake_kairos_repo):
         baseline_frontmatter=skill.frontmatter,
     )
     assert report.all_passed(), report.failed
+
+
+def test_safety_block_not_applicable_weakening_rejected():
+    """Regression: required → not-applicable for citation_verification must be rejected."""
+    baseline_fm = {
+        "safety": {
+            "citation_verification": "required",
+            "jurisdiction_consistency": "enforced",
+            "matter_scope": "enforced",
+            "upl_check": "required",
+            "disclaimer": "legal-research-only",
+        },
+        "risk_tier": "medium",
+    }
+    for key in ("citation_verification", "jurisdiction_consistency", "matter_scope"):
+        candidate_fm = {
+            "safety": {**baseline_fm["safety"], key: "not-applicable"},
+            "risk_tier": "medium",
+        }
+        r = check_safety_block_intact(candidate_fm, baseline=baseline_fm)
+        assert not r.passed, f"weakening {key} → not-applicable should fail"
+        assert key in r.message

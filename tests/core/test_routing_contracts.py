@@ -53,3 +53,25 @@ def test_routing_policy_json_schema_dict_types():
     props = RoutingPolicy.model_json_schema()["properties"]
     assert props["description_weights"]["type"] == "object"
     assert props["trigger_hints"]["type"] == "object"
+
+
+def test_evolve_db_fixture_applies_phase2a_ddl(evolve_db):
+    """Smoke: pytest-postgresql + ddl_phase2a.sql produces the expected tables."""
+    with evolve_db.cursor() as cur:
+        cur.execute("""
+            SELECT table_schema, table_name
+            FROM information_schema.tables
+            WHERE table_schema IN ('kairos_evolve', 'kairos_audit')
+            ORDER BY table_schema, table_name
+        """)
+        rows = cur.fetchall()
+    names = {f"{s}.{t}" for s, t in rows}
+    expected = {
+        "kairos_audit.audit_log",
+        "kairos_audit.envelope_batches",
+        "kairos_audit.idempotency_keys",
+        "kairos_evolve.routing_policies",
+        "kairos_evolve.routing_policy_versions",
+        "kairos_evolve.routing_events",
+    }
+    assert expected <= names, f"missing tables: {expected - names}"

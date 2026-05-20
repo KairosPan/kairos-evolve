@@ -81,7 +81,7 @@ CREATE TABLE kairos_evolve.routing_policy_versions (
     policy_version      BIGINT NOT NULL,
     etag                TEXT NOT NULL,
     description_weights JSONB NOT NULL,
-    trigger_hints       JSONB NOT NULL DEFAULT '[]',
+    trigger_hints       JSONB NOT NULL DEFAULT '{}',
     activated_at        TIMESTAMPTZ,
     superseded_at       TIMESTAMPTZ,
     signed_by           TEXT NOT NULL,

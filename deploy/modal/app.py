@@ -12,10 +12,9 @@ from __future__ import annotations
 
 import modal
 
-stub = modal.App("kairos-evolve-api")
+modal_app = modal.App("kairos-evolve-api")
 
 # Image: install kairos-evolve[api] + cryptography from the local source.
-# For a published wheel, replace `add_local_dir` with `pip_install`.
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("git")
@@ -30,7 +29,7 @@ image = (
 secrets = [modal.Secret.from_name("kairos-evolve-api")]
 
 
-@stub.function(
+@modal_app.function(
     image=image,
     secrets=secrets,
     keep_warm=1,

@@ -45,10 +45,27 @@ class EventsBatchIn(BaseModel):
 
 
 class EventsBatchAck(BaseModel):
+    """Ack returned by ``POST /v1/routing/events/batch``.
+
+    ``new_policy_versions`` is the canonical multi-scope answer: a
+    ``{scope_key: new_policy_version}`` dict that captures every scope
+    whose policy was bumped by this batch (Phase 2A.x cleanup).
+
+    ``new_policy_version`` is preserved as a deprecated alias for the
+    single-scope case: when the dict has exactly one entry, the field
+    is populated with that value; otherwise it is ``None`` (the field
+    cannot honestly report "the" new version when several were bumped,
+    and ambiguity is worse than absence). Old clients that read only
+    ``new_policy_version`` continue to work for the common single-scope
+    case; clients that need the full picture should read
+    ``new_policy_versions``. The field will be removed in Phase 2C.
+    """
+
     batch_id: uuid.UUID
     inserted: int
     policy_bumped: bool
-    new_policy_version: int | None
+    new_policy_versions: dict[str, int] = {}
+    new_policy_version: int | None = None  # deprecated — see class docstring
 
 
 class ActivePolicyOut(BaseModel):
@@ -133,16 +150,11 @@ async def post_events_batch(payload: EventsBatchIn, request: Request) -> EventsB
             )
         )
     updater = HebbianUpdater()
-    policy_bumped = False
-    new_version: int | None = None
+    # Phase 2A.x cleanup: track every scope that bumped. Multi-scope batches
+    # used to lose all but the last bump in the ack; now every bump is
+    # surfaced. See `EventsBatchAck` docstring for the wire-compat story.
+    new_versions: dict[str, int] = {}
 
-    # Phase 2A known limitation: when a single batch causes policy bumps in
-    # multiple scopes, EventsBatchAck reports only the LAST scope's version
-    # number — the `new_version` variable is overwritten each iteration.
-    # In practice almost every batch is single-scope, so the gap is rarely
-    # hit. Phase 2A.x cleanup will change `new_policy_version: int | None`
-    # to `new_policy_versions: dict[str, int]` (a {scope_key: version} map)
-    # along with a wire-compat migration.
     for scope_key, scope_events in bucketed.items():
         active = await _read_active_policy(pool, scope_key)
         baseline = RoutingPolicy(
@@ -162,14 +174,20 @@ async def post_events_batch(payload: EventsBatchIn, request: Request) -> EventsB
                 new_policy=new_policy,
                 signed_by=settings.evolve_key_id,
             )
-            policy_bumped = True
-            new_version = v_new
+            new_versions[scope_key] = v_new
+
+    # Deprecated single-version field: only set when exactly one scope
+    # bumped (otherwise ambiguity would lie about "the" new version).
+    legacy_new_version: int | None = (
+        next(iter(new_versions.values())) if len(new_versions) == 1 else None
+    )
 
     return EventsBatchAck(
         batch_id=payload.batch_id,
         inserted=inserted,
-        policy_bumped=policy_bumped,
-        new_policy_version=new_version,
+        policy_bumped=bool(new_versions),
+        new_policy_versions=new_versions,
+        new_policy_version=legacy_new_version,
     )
 
 

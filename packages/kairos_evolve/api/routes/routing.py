@@ -1,18 +1,20 @@
 """POST /v1/routing/events/batch + GET /v1/routing/policies/{scope_key}.
 
 Phase 2A scope:
-  - POST batch ingest: writes envelope_batches row + per-event audit_log rows
-    (batched, no per-row signature) + routing_events rows.
+  - POST batch ingest: writes envelope_batches row + routing_events rows.
   - GET active policy: serves whatever the current active row is for the scope.
-  - The L3 Hebbian update + version bump is wired in but currently runs INLINE
-    on each batch. Future-Phase-2 improvement: background flush on time/event
-    window. Documented as a Phase 2.x cleanup.
+  - The L3 Hebbian update + version bump runs INLINE on each batch. Future
+    improvement: background flush on time/event window.
+
+Persistence layer: this module uses the async helpers in ``core.audit``
+(``AsyncAuditWriter``) and ``core.routing_store``
+(``AsyncRoutingStore``, ``async_record_routing_events``,
+``async_activate_policy_version``). The inline SQL that previously
+duplicated those helpers' bodies has been removed (Phase 2A.x cleanup).
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
 from datetime import datetime
 
@@ -20,8 +22,17 @@ from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from kairos_evolve.core.audit import AsyncAuditWriter, AuditEntry
 from kairos_evolve.core.policies import HebbianUpdater, PolicyBumpDecision
 from kairos_evolve.core.routing_contracts import RoutingEvent, RoutingPolicy
+from kairos_evolve.core.routing_store import (
+    ActivePolicy,
+    AsyncRoutingStore,
+    RoutingEventRow,
+    async_activate_policy_version,
+    async_record_routing_events,
+)
+from kairos_evolve.core.time import Clock
 
 router = APIRouter(tags=["routing"], prefix="/v1/routing")
 
@@ -82,61 +93,39 @@ class ActivePolicyOut(BaseModel):
 @router.post("/events/batch", status_code=status.HTTP_202_ACCEPTED, response_model=EventsBatchAck)
 async def post_events_batch(payload: EventsBatchIn, request: Request) -> EventsBatchAck:
     pool = request.app.state.pool
-    clock = request.app.state.clock
+    clock: Clock = request.app.state.clock
     settings = request.app.state.settings
 
     if len(payload.events) > settings.routing_event_batch_max_size:
         raise HTTPException(
             status_code=413,
-            detail=f"batch too large: {len(payload.events)} > {settings.routing_event_batch_max_size}",
+            detail=(
+                f"batch too large: {len(payload.events)} > {settings.routing_event_batch_max_size}"
+            ),
         )
 
     async with pool.connection() as aconn:
-        cur = aconn.cursor()
-        try:
-            await cur.execute(
-                """
-                INSERT INTO kairos_audit.envelope_batches
-                    (batch_id, event_kinds, merkle_root, member_count, signature, signed_by, ts)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (batch_id) DO NOTHING
-                """,
-                (
-                    payload.batch_id,
-                    ["routing.event"],
-                    payload.merkle_root,
-                    len(payload.events),
-                    bytes.fromhex("00") * 64,  # gateway-signed; trusted at envelope layer
-                    request.state.envelope.key_id,
-                    clock.now(),
-                ),
+        audit = AsyncAuditWriter(aconn, clock=clock)
+        await audit.write_envelope_only(
+            batch_id=payload.batch_id,
+            merkle_root=payload.merkle_root,
+            member_count=len(payload.events),
+            batch_signature=bytes.fromhex("00") * 64,  # trusted at envelope layer
+            signed_by=request.state.envelope.key_id,
+            event_kinds=["routing.event"],
+        )
+        event_rows = [
+            RoutingEventRow(
+                event_id=ev.event_id,
+                scope_key=ev.scope_key,
+                query_hash=ev.query_hash,
+                routed_skill_id=ev.routed_skill_id,
+                accepted_skill_id=ev.accepted_skill_id,
+                at=ev.at,
             )
-            inserted = 0
-            for ev in payload.events:
-                await cur.execute(
-                    """
-                    INSERT INTO kairos_evolve.routing_events
-                        (event_id, scope_key, query_hash, routed_skill_id,
-                         accepted_skill_id, at, batch_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (event_id) DO NOTHING
-                    """,
-                    (
-                        ev.event_id,
-                        ev.scope_key,
-                        ev.query_hash,
-                        ev.routed_skill_id,
-                        ev.accepted_skill_id,
-                        ev.at,
-                        payload.batch_id,
-                    ),
-                )
-                if cur.rowcount == 1:
-                    inserted += 1
-        finally:
-            await cur.close()
-
-        await aconn.commit()
+            for ev in payload.events
+        ]
+        inserted = await async_record_routing_events(aconn, event_rows, batch_id=payload.batch_id)
 
     # ----- Hebbian update + bump decision (per-scope) -----
     bucketed: dict[str, list[RoutingEvent]] = {}
@@ -167,7 +156,7 @@ async def post_events_batch(payload: EventsBatchIn, request: Request) -> EventsB
             max_abs_delta_threshold=settings.policy_bump_delta_threshold,
         )
         if decision.should_bump:
-            v_new = await _insert_and_activate_new_version(
+            v_new = await _bump_and_activate(
                 pool=pool,
                 clock=clock,
                 scope_key=scope_key,
@@ -208,132 +197,60 @@ async def get_active_policy(scope_key: str, request: Request) -> ActivePolicyOut
 # ----- Helpers ----------------------------------------------------------------
 
 
-async def _read_active_policy(pool, scope_key: str):
-    async with pool.connection() as conn:
-        cur = conn.cursor()
-        try:
-            await cur.execute(
-                """
-                SELECT policy_version, etag, description_weights, trigger_hints, activated_at
-                  FROM kairos_evolve.routing_policy_versions
-                 WHERE scope_key = %s
-                   AND activated_at IS NOT NULL
-                   AND superseded_at IS NULL
-                """,
-                (scope_key,),
-            )
-            row = await cur.fetchone()
-        finally:
-            await cur.close()
-    if row is None:
-        return None
-    from kairos_evolve.core.routing_store import ActivePolicy
+async def _read_active_policy(pool, scope_key: str) -> ActivePolicy | None:
+    """Read the active policy via the async store. No clock is needed for the
+    read path — pass the real one for symmetry with the write path."""
+    from kairos_evolve.core.time import RealClock
 
-    return ActivePolicy(
-        scope_key=scope_key,
-        policy_version=row[0],
-        etag=row[1],
-        description_weights=row[2],
-        trigger_hints=row[3] if isinstance(row[3], dict) else {},
-        activated_at=row[4],
-    )
+    async with pool.connection() as aconn:
+        store = AsyncRoutingStore(aconn, clock=RealClock())
+        return await store.get_active_policy(scope_key)
 
 
-async def _insert_and_activate_new_version(
+async def _bump_and_activate(
     *,
     pool,
-    clock,
+    clock: Clock,
     scope_key: str,
     new_policy: RoutingPolicy,
     signed_by: str,
 ) -> int:
-    audit_id = uuid.uuid4()
-    async with pool.connection() as conn:
-        cur = conn.cursor()
-        try:
-            await cur.execute(
-                """
-                INSERT INTO kairos_audit.audit_log (
-                    id, actor_service, actor_key_id, body_sha256,
-                    target_schema, target_table, target_id,
-                    action, previous_state, next_state, signature, payload
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-                """,
-                (
-                    audit_id,
-                    "kairos_evolve_api",
-                    signed_by,
-                    "policy-bump",
-                    "kairos_evolve",
-                    "routing_policy_versions",
-                    scope_key,
-                    "routing.policy.activate",
-                    "staged",
-                    "active",
-                    bytes.fromhex("00") * 64,
-                    json.dumps({"scope_key": scope_key}),
-                ),
-            )
-            await cur.execute(
-                "SELECT COALESCE(MAX(policy_version), 0) "
-                "FROM kairos_evolve.routing_policy_versions WHERE scope_key = %s",
-                (scope_key,),
-            )
-            row = await cur.fetchone()
-            new_version = row[0] + 1
-            etag = hashlib.sha256(
-                json.dumps(new_policy.description_weights, sort_keys=True).encode("utf-8")
-            ).hexdigest()
-            await cur.execute(
-                """
-                INSERT INTO kairos_evolve.routing_policy_versions (
-                    id, scope_key, policy_version, etag, description_weights,
-                    trigger_hints, signed_by, signature, audit_id
-                ) VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s)
-                """,
-                (
-                    uuid.uuid4(),
-                    scope_key,
-                    new_version,
-                    etag,
-                    json.dumps(new_policy.description_weights),
-                    json.dumps(new_policy.trigger_hints),
-                    signed_by,
-                    bytes.fromhex("00") * 64,
-                    audit_id,
-                ),
-            )
-            now = clock.now()
-            await cur.execute(
-                """
-                UPDATE kairos_evolve.routing_policy_versions
-                   SET superseded_at = %s
-                 WHERE scope_key = %s
-                   AND activated_at IS NOT NULL
-                   AND superseded_at IS NULL
-                   AND policy_version <> %s
-                """,
-                (now, scope_key, new_version),
-            )
-            await cur.execute(
-                """
-                UPDATE kairos_evolve.routing_policy_versions
-                   SET activated_at = %s
-                 WHERE scope_key = %s AND policy_version = %s
-                """,
-                (now, scope_key, new_version),
-            )
-            await cur.execute(
-                """
-                INSERT INTO kairos_evolve.routing_policies (scope_key, active_version, last_activated_at)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (scope_key) DO UPDATE
-                  SET active_version = EXCLUDED.active_version,
-                      last_activated_at = EXCLUDED.last_activated_at
-                """,
-                (scope_key, new_version, now),
-            )
-        finally:
-            await cur.close()
-        await conn.commit()
+    """Audit-log the policy bump, insert the staged version, then activate it.
+
+    Replaces the previous inline SQL block. Uses the async helpers so the
+    same logic now lives in one place (``AsyncAuditWriter`` /
+    ``AsyncRoutingStore`` / ``async_activate_policy_version``); future
+    behaviour changes to the bump pipeline touch the helpers, not the
+    route handler.
+    """
+    async with pool.connection() as aconn:
+        audit = AsyncAuditWriter(aconn, clock=clock)
+        store = AsyncRoutingStore(aconn, clock=clock)
+
+        audit_id = await audit.write_signed(
+            AuditEntry(
+                actor_service="kairos_evolve_api",
+                actor_key_id=signed_by,
+                body_sha256="policy-bump",
+                target_schema="kairos_evolve",
+                target_table="routing_policy_versions",
+                target_id=scope_key,
+                action="routing.policy.activate",
+                payload={"scope_key": scope_key},
+                previous_state="staged",
+                next_state="active",
+            ),
+            signature=bytes.fromhex("00") * 64,
+        )
+        new_version = await store.insert_policy_version(
+            scope_key=scope_key,
+            description_weights=new_policy.description_weights,
+            trigger_hints=new_policy.trigger_hints,
+            signed_by=signed_by,
+            signature=bytes.fromhex("00") * 64,
+            audit_id=audit_id,
+        )
+        await async_activate_policy_version(
+            aconn, scope_key=scope_key, policy_version=new_version, clock=clock
+        )
     return new_version

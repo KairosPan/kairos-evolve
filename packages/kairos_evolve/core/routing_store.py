@@ -199,10 +199,187 @@ class RoutingStore:
         )
 
 
+async def async_record_routing_events(
+    aconn,
+    events: list[RoutingEventRow],
+    *,
+    batch_id: uuid.UUID,
+) -> int:
+    """Async sibling of ``record_routing_events``. Same dedup semantics."""
+    if not events:
+        return 0
+    inserted = 0
+    cur = aconn.cursor()
+    try:
+        for ev in events:
+            await cur.execute(
+                """
+                INSERT INTO kairos_evolve.routing_events
+                    (event_id, scope_key, query_hash, routed_skill_id,
+                     accepted_skill_id, at, batch_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (event_id) DO NOTHING
+                """,
+                (
+                    ev.event_id,
+                    ev.scope_key,
+                    ev.query_hash,
+                    ev.routed_skill_id,
+                    ev.accepted_skill_id,
+                    ev.at,
+                    batch_id,
+                ),
+            )
+            if cur.rowcount == 1:
+                inserted += 1
+    finally:
+        await cur.close()
+    await aconn.commit()
+    return inserted
+
+
+async def async_activate_policy_version(
+    aconn,
+    *,
+    scope_key: str,
+    policy_version: int,
+    clock: Clock,
+) -> None:
+    """Async sibling of ``activate_policy_version``. Same semantics."""
+    now = clock.now()
+    cur = aconn.cursor()
+    try:
+        await cur.execute(
+            """
+            UPDATE kairos_evolve.routing_policy_versions
+               SET superseded_at = %s
+             WHERE scope_key = %s
+               AND activated_at IS NOT NULL
+               AND superseded_at IS NULL
+               AND policy_version <> %s
+            """,
+            (now, scope_key, policy_version),
+        )
+        await cur.execute(
+            """
+            UPDATE kairos_evolve.routing_policy_versions
+               SET activated_at = %s, superseded_at = NULL
+             WHERE scope_key = %s AND policy_version = %s
+            """,
+            (now, scope_key, policy_version),
+        )
+        await cur.execute(
+            """
+            INSERT INTO kairos_evolve.routing_policies
+                (scope_key, active_version, last_activated_at)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (scope_key) DO UPDATE
+              SET active_version = EXCLUDED.active_version,
+                  last_activated_at = EXCLUDED.last_activated_at
+            """,
+            (scope_key, policy_version, now),
+        )
+    finally:
+        await cur.close()
+    await aconn.commit()
+
+
+class AsyncRoutingStore:
+    """Async psycopg sibling of ``RoutingStore``.
+
+    Mirrors ``insert_policy_version`` + ``get_active_policy`` for the
+    FastAPI route handler in ``api/routes/routing.py`` which operates
+    on the async pool.
+    """
+
+    def __init__(self, aconn, *, clock: Clock):
+        self._aconn = aconn
+        self._clock = clock
+
+    async def insert_policy_version(
+        self,
+        *,
+        scope_key: str,
+        description_weights: dict[str, float],
+        trigger_hints: dict[str, list[str]],
+        signed_by: str,
+        signature: bytes,
+        audit_id: uuid.UUID,
+    ) -> int:
+        cur = self._aconn.cursor()
+        try:
+            await cur.execute(
+                "SELECT COALESCE(MAX(policy_version), 0) "
+                "FROM kairos_evolve.routing_policy_versions WHERE scope_key = %s",
+                (scope_key,),
+            )
+            row = await cur.fetchone()
+            current_max = row[0]
+            new_version = current_max + 1
+            etag = hashlib.sha256(
+                json.dumps(description_weights, sort_keys=True).encode("utf-8")
+            ).hexdigest()
+            await cur.execute(
+                """
+                INSERT INTO kairos_evolve.routing_policy_versions (
+                    id, scope_key, policy_version, etag,
+                    description_weights, trigger_hints,
+                    signed_by, signature, audit_id
+                ) VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s)
+                """,
+                (
+                    uuid.uuid4(),
+                    scope_key,
+                    new_version,
+                    etag,
+                    json.dumps(description_weights),
+                    json.dumps(trigger_hints),
+                    signed_by,
+                    signature,
+                    audit_id,
+                ),
+            )
+        finally:
+            await cur.close()
+        await self._aconn.commit()
+        return new_version
+
+    async def get_active_policy(self, scope_key: str) -> ActivePolicy | None:
+        cur = self._aconn.cursor()
+        try:
+            await cur.execute(
+                """
+                SELECT policy_version, etag, description_weights,
+                       trigger_hints, activated_at
+                  FROM kairos_evolve.routing_policy_versions
+                 WHERE scope_key = %s
+                   AND activated_at IS NOT NULL
+                   AND superseded_at IS NULL
+                """,
+                (scope_key,),
+            )
+            row = await cur.fetchone()
+        finally:
+            await cur.close()
+        if row is None:
+            return None
+        return ActivePolicy(
+            scope_key=scope_key,
+            policy_version=row[0],
+            etag=row[1],
+            description_weights=row[2],
+            trigger_hints=row[3] if isinstance(row[3], dict) else {},
+            activated_at=row[4],
+        )
+
+
 __all__ = [
     "ActivePolicy",
+    "AsyncRoutingStore",
     "RoutingEventRow",
     "RoutingStore",
     "activate_policy_version",
+    "async_activate_policy_version",
+    "async_record_routing_events",
     "record_routing_events",
 ]

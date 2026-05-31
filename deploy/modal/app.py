@@ -1,5 +1,12 @@
 """Modal deployment for kairos-evolve-api.
 
+DEPRECATED / LEGACY SCAFFOLD. This Modal deploy predates the gateway's move to
+AWS App Runner (kairos repo deploy/aws/terraform/apprunner.tf). It is the only
+working deploy path TODAY, but it is pending migration: the FastAPI service
+moves to AWS App Runner; the future off-request long-GEPA worker runs on
+ECS-Fargate/Batch. Do not extend — see the Modal→AWS migration plan. Do not
+delete until the App Runner Dockerfile + Terraform land.
+
 Deploy:
     cd kairos-evolve
     modal deploy deploy/modal/app.py

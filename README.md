@@ -9,7 +9,7 @@ legal agent studio. Implements the L1–L6 optimizer levels described in
 | Level | What it evolves | Status |
 | --- | --- | --- |
 | **L1 prompts** | per-skill `prompts/*.md` via DSPy/GEPA | ✅ Shipped — CLI (`kairos-evolve prompts …`) |
-| **L3 routing — service** | `evolve-api` (FastAPI on Modal) | ✅ Shipped — Phase 2A (PR #1) |
+| **L3 routing — service** | `evolve-api` (FastAPI; current deploy scaffold is Modal, migrating to AWS App Runner to match the gateway) | ✅ Shipped — Phase 2A (PR #1) |
 | **L3 routing — kairos integration** | thin client + signed webhooks in kairos main | 🟡 Phase 2B — plan landed in kairos main PR #8; cutover PRs to follow. Flag `KAIROS_OPTIMIZER_REMOTE` defaults OFF until soak completes |
 | **L2 retrieval** | RAG weights + hybrid retrieval | 🔵 Design (spec §6.5) |
 | **L4 models** | adapter selection + fine-tuning | 🔵 Design |
@@ -71,14 +71,14 @@ Review the diff and decide whether to land the change in kairos main. L1 deliber
 
 ## L3 — routing (Phase 2A: evolve-api service)
 
-The L3 routing service ships as a FastAPI app deployable to Modal (one container per region). It accepts signed ed25519 envelopes from kairos main, decides routing-policy updates from observed traces, and broadcasts policy invalidation webhooks back.
+The L3 routing service ships as a FastAPI app. The current deploy scaffold targets Modal (`deploy/modal/`, one container per region); the migration target is AWS App Runner, to match the kairos gateway (`deploy/aws/terraform/apprunner.tf` in the kairos repo) — see the Modal→AWS migration plan. It accepts signed ed25519 envelopes from kairos main, decides routing-policy updates from observed traces, and broadcasts policy invalidation webhooks back.
 
 ```bash
 # Local dev
 uv run uvicorn kairos_evolve.api.app:app --reload
 
-# Modal deploy
-modal deploy packages/kairos_evolve/api/modal_app.py
+# Deploy — current scaffold (Modal); AWS App Runner is the migration target (matches the gateway)
+modal deploy deploy/modal/app.py  # legacy scaffold — pending AWS App Runner migration
 ```
 
 The Phase 2B kairos-main integration is the cross-repo cutover. Until that lands and bakes in staging, kairos main keeps its in-tree `OptimizerL3` (flag `KAIROS_OPTIMIZER_REMOTE=0` — the default). The Phase 2B plan is at [kairos PR #8](https://github.com/KairosPan/kairos/pull/8); the implementation PRs follow as 16 task-sized merges.
@@ -102,7 +102,7 @@ CI runs the contract tests against the checked-in fixtures; the regen script is 
 
 ```
 packages/kairos_evolve/
-├── core/                 domain logic — pure, no FastAPI/Typer/Modal
+├── core/                 domain logic — pure, no FastAPI/Typer/deploy-framework imports
 │   ├── config.py         EvolveConfig + KAIROS_REPO resolution
 │   ├── envelope.py       ed25519 wire envelope (peer of kairos main)
 │   ├── contracts.py      re-exports (EnvelopeV1, RoutingPolicy, …)
@@ -113,9 +113,11 @@ packages/kairos_evolve/
 │   ├── runner.py         Runner Protocol + KairosSubprocessRunner
 │   ├── prompts.py        L1 evolve_prompts loop
 │   └── routing/          L3 routing decision logic (Phase 2A)
-├── api/                  evolve-api — FastAPI service + Modal entrypoint (Phase 2A)
-│   ├── app.py
-│   └── modal_app.py
+├── api/                  evolve-api — FastAPI service (deploy entrypoints under deploy/) (Phase 2A)
+│   ├── app.py            build_app() ASGI factory
+│   ├── middleware/       envelope-verify + idempotency
+│   ├── adapters/         neon pool + gateway events client
+│   └── routes/           health, routing, jobs
 ├── cli/                  Typer entry; depends on core only
 │   ├── main.py
 │   └── evolve_prompts.py
@@ -123,7 +125,7 @@ packages/kairos_evolve/
     └── regen-contracts.sh
 ```
 
-`core/` stays pure (no FastAPI/Typer/Modal imports) so the L1 CLI, the L3 service, and any future synthesis worker can compose the same domain logic without pulling in framework deps.
+`core/` stays pure (no FastAPI/Typer/deploy-framework imports) so the L1 CLI, the L3 service, and any future synthesis worker can compose the same domain logic without pulling in framework deps.
 
 ## License
 

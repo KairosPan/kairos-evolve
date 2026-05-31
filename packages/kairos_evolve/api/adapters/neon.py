@@ -1,8 +1,9 @@
 """psycopg-backed connection pool factory.
 
 Connection pool is owned by the FastAPI app's lifespan and injected into
-routes via Depends(). Pool config tuned for Modal (small, since each Modal
-container handles modest concurrency).
+routes via Depends(). Pool config is kept small because each service instance
+handles modest concurrency (one pool per Modal container / App Runner instance;
+revisit sizing for the App Runner profile during migration).
 """
 
 from __future__ import annotations

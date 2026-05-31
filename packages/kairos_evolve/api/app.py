@@ -1,7 +1,8 @@
 """FastAPI app assembly: settings → pool → public-key registry → middleware → routes.
 
 Exposed as `build_app() -> FastAPI` so tests can construct fresh instances.
-Modal deploy imports `app` from this module.
+The deployment entrypoint imports/calls `build_app()` (currently deploy/modal/app.py;
+the AWS App Runner migration target invokes it via `uvicorn --factory`).
 """
 
 from __future__ import annotations
@@ -68,5 +69,7 @@ def build_app() -> FastAPI:
     return app
 
 
-# Module-level None — Modal deploy imports build_app() and calls it
+# Module-level None — the deploy entrypoint imports build_app() and calls it
+# (Modal @asgi_app today; the App Runner target uses `uvicorn --factory build_app`).
+# `app = None` keeps module import side-effect-free.
 app = None

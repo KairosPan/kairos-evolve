@@ -1,5 +1,18 @@
 # kairos-evolve-api on Modal
 
+> **STATUS: LEGACY / CURRENT SCAFFOLD.** The kairos gateway moved to AWS App
+> Runner (kairos repo `deploy/aws/`); kairos-evolve-api was never migrated and
+> still runs on Modal via this procedure. This is the live path but pending the
+> Modal→AWS migration (App Runner for the FastAPI service via a Dockerfile + ECR
+> + Terraform mirroring the gateway, Secrets Manager replacing the Modal/Infisical
+> secret; ECS-Fargate/Batch for the future long-GEPA worker). The steps below
+> remain accurate for the existing Modal deploy — do NOT rewrite the `modal
+> secret create` / `modal deploy` / `*.modal.run` / `modal app rollback` steps to
+> AWS verbs (no App Runner service, Secrets Manager entries, or AWS URL exist yet).
+> The ed25519 keygen recipe and the "public keys go in BOTH the secret AND the
+> kairos-gateway env" instruction below are platform-neutral and reused by the
+> AWS plan. See the Modal→AWS App Runner migration plan.
+
 ## Prerequisites
 
 1. Modal account + CLI installed: `pip install modal && modal token new`

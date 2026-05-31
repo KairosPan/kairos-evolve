@@ -2,9 +2,9 @@
 
 The minimum-slice compute (spec D2): a programmatic wrapper over
 ``core.prompts.evolve_prompts`` driven by a deterministic fake rewriter + the
-heuristic (keyword-overlap) scorer. NO DSPy, NO real GEPA, NO Modal worker, and
-NO provisioned kairos checkout — the real DSPy rewriter + a Runner against a real
-checkout is #35.
+heuristic (keyword-overlap) scorer. NO DSPy, NO real GEPA, NO off-request GEPA
+worker (the future ECS-Fargate/Batch long-GEPA worker; #35), and NO provisioned
+kairos checkout — the real DSPy rewriter + a Runner against a real checkout is #35.
 
 Why a throwaway scratch skill dir? ``evolve_prompts`` is the reusable kernel and
 reads its baseline from ``<repo>/skills/<name>/prompts/system.md`` on disk. The

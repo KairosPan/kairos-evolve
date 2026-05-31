@@ -163,6 +163,36 @@ async def test_jobs_run_push_failure_surfaces_as_5xx(asgi_client, gateway_keypai
 
 
 @pytest.mark.asyncio
+async def test_jobs_run_retries_after_transient_push_failure(asgi_client, gateway_keypair):
+    """A 5xx delivery failure must NOT be cached under ``jobs-run:{job_id}``: a
+    retry of the same job must re-run compute + re-push the candidate. Otherwise
+    a momentary gateway outage would poison the idempotency cache and every retry
+    would replay the cached 502 until the job dies — silently stranding the
+    candidate (violates the durability contract)."""
+    priv, _ = gateway_keypair
+    body = _job_body()
+
+    # Dispatch #1: gateway down → /v1/jobs/run returns 5xx (and must not cache it).
+    failing = _install_outbound_mock(asgi_client, status_code=500)
+    h1 = make_envelope_headers(
+        body=body, private_key=priv, key_id="K_gw_test", service_id="kairos-gateway"
+    )
+    r1 = await asgi_client.post("/v1/jobs/run", json=body, headers=h1)
+    assert r1.status_code >= 500
+    assert len(failing.requests) == 1
+
+    # Dispatch #2 (same job_id, gateway healthy): must RE-RUN, not replay the 502.
+    healthy = _install_outbound_mock(asgi_client, status_code=200)
+    h2 = make_envelope_headers(
+        body=body, private_key=priv, key_id="K_gw_test", service_id="kairos-gateway"
+    )
+    r2 = await asgi_client.post("/v1/jobs/run", json=body, headers=h2)
+    assert r2.status_code == 202, r2.text
+    assert r2.headers.get("X-Idempotent-Replay") != "true"  # a fresh run, not a cached replay
+    assert len(healthy.requests) == 1  # the candidate was actually re-pushed
+
+
+@pytest.mark.asyncio
 async def test_jobs_run_accepts_production_headers_without_idempotency_key(
     asgi_client, gateway_keypair
 ):

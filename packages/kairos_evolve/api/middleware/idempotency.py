@@ -109,27 +109,35 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             except json.JSONDecodeError:
                 response_payload = None
 
-            cur = conn.cursor()
-            try:
-                await cur.execute(
-                    """
-                    INSERT INTO kairos_audit.idempotency_keys
-                        (key, request_hash, response_status, response_body_jsonb, created_at, expires_at)
-                    VALUES (%s, %s, %s, %s::jsonb, %s, %s)
-                    ON CONFLICT (key) DO NOTHING
-                    """,
-                    (
-                        key,
-                        request_hash,
-                        response.status_code,
-                        json.dumps(response_payload) if response_payload is not None else None,
-                        clock.now(),
-                        clock.now() + ttl,
-                    ),
-                )
-            finally:
-                await cur.close()
-            await conn.commit()
+            # Only cache SUCCESS (and client-error) responses. A 5xx is
+            # transient (e.g. the /v1/jobs/run candidate push hit a momentarily
+            # down gateway → 502): caching it under the deterministic
+            # ``jobs-run:{job_id}`` key would make every retry replay the cached
+            # 5xx without re-running compute, so the job exhausts its attempts
+            # and the candidate silently vanishes — defeating the durability
+            # contract (a failed dispatch MUST re-run on retry).
+            if response.status_code < 500:
+                cur = conn.cursor()
+                try:
+                    await cur.execute(
+                        """
+                        INSERT INTO kairos_audit.idempotency_keys
+                            (key, request_hash, response_status, response_body_jsonb, created_at, expires_at)
+                        VALUES (%s, %s, %s, %s::jsonb, %s, %s)
+                        ON CONFLICT (key) DO NOTHING
+                        """,
+                        (
+                            key,
+                            request_hash,
+                            response.status_code,
+                            json.dumps(response_payload) if response_payload is not None else None,
+                            clock.now(),
+                            clock.now() + ttl,
+                        ),
+                    )
+                finally:
+                    await cur.close()
+                await conn.commit()
 
             return JSONResponse(
                 response_payload or {},

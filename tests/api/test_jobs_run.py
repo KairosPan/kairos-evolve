@@ -22,7 +22,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from kairos_evolve.core.candidate_contracts import CandidateReturn
 from kairos_evolve.core.envelope import EnvelopeV1, verify_envelope
 
-from tests.api.conftest import make_envelope_headers
+from tests.api.conftest import make_envelope_headers, make_envelope_headers_no_idempotency
 
 
 def _job_body() -> dict:
@@ -47,6 +47,33 @@ class _RecordingTransport(httpx.MockTransport):
             return httpx.Response(status_code, json={"status": "accepted"})
 
         super().__init__(handler)
+
+
+class _RaisingTransport(httpx.MockTransport):
+    """Records the attempted outbound POST then raises a transport error.
+
+    Models a real ConnectError / read timeout on the candidate push (the gateway
+    is unreachable), which is distinct from the gateway returning a non-2xx.
+    """
+
+    def __init__(self, *, exc: httpx.HTTPError):
+        self.requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.requests.append(request)
+            raise exc
+
+        super().__init__(handler)
+
+
+def _install_raising_outbound_mock(
+    client: httpx.AsyncClient, *, exc: httpx.HTTPError
+) -> _RaisingTransport:
+    """Swap gateway_events' httpx transport for one that raises a transport error."""
+    app = client._transport.app  # type: ignore[attr-defined]
+    transport = _RaisingTransport(exc=exc)
+    app.state.gateway_events._http = httpx.AsyncClient(transport=transport, timeout=5.0)
+    return transport
 
 
 def _install_outbound_mock(client: httpx.AsyncClient, *, status_code: int) -> _RecordingTransport:
@@ -132,6 +159,59 @@ async def test_jobs_run_push_failure_surfaces_as_5xx(asgi_client, gateway_keypai
     assert resp.status_code >= 500, resp.text
     # The candidate push WAS attempted (so the failure is a delivery failure,
     # not a compute failure) — the caller's job will retry the whole dispatch.
+    assert len(outbound.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_jobs_run_accepts_production_headers_without_idempotency_key(
+    asgi_client, gateway_keypair
+):
+    """The real caller (RemoteEvolveExecutor → headers_from_envelope) sends ONLY the
+    seven X-Envelope-* headers and NO Idempotency-Key. The route must derive its
+    idempotency key from the verified body's ``job_id`` (spec D9) and answer 202 —
+    otherwise IdempotencyMiddleware 400s every production dispatch forever."""
+    priv, _ = gateway_keypair
+    outbound = _install_outbound_mock(asgi_client, status_code=200)
+
+    body = _job_body()
+    # Headers EXACTLY as the production caller's headers_from_envelope produces —
+    # no Idempotency-Key (the kairos signer never adds one for /v1/jobs/run).
+    headers = make_envelope_headers_no_idempotency(
+        body=body,
+        private_key=priv,
+        key_id="K_gw_test",
+        service_id="kairos-gateway",
+    )
+    assert "Idempotency-Key" not in headers  # guard: matches the real wire exactly
+
+    resp = await asgi_client.post("/v1/jobs/run", json=body, headers=headers)
+
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["job_id"] == "job-abc-123"
+    # The body-derived idempotency key still let the candidate push through.
+    assert len(outbound.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_jobs_run_transport_error_surfaces_as_5xx(asgi_client, gateway_keypair):
+    """A transport error (ConnectError/timeout) on the candidate push → 5xx from
+    /v1/jobs/run (the caller's job retries; spec D3) AND the push WAS attempted —
+    proving the failure is a delivery failure, not a silent drop."""
+    priv, _ = gateway_keypair
+    outbound = _install_raising_outbound_mock(
+        asgi_client, exc=httpx.ConnectError("gateway unreachable")
+    )
+
+    body = _job_body()
+    headers = make_envelope_headers(
+        body=body,
+        private_key=priv,
+        key_id="K_gw_test",
+        service_id="kairos-gateway",
+    )
+    resp = await asgi_client.post("/v1/jobs/run", json=body, headers=headers)
+
+    assert resp.status_code >= 500, resp.text
     assert len(outbound.requests) == 1
 
 

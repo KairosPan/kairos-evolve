@@ -5,8 +5,11 @@ The flag-gated OUTSIDE compute seam's evolve-side endpoint. The kairos
 handler:
 
   1. is verified by ``EnvelopeVerifyMiddleware`` (the gateway-signed body lands
-     on ``request.state.body_obj``) + de-duped by ``IdempotencyMiddleware`` (key
-     from the inbound ``job_id``) — ZERO per-route auth code;
+     on ``request.state.body_obj``) + de-duped by ``IdempotencyMiddleware``,
+     which — when the caller sends no ``Idempotency-Key`` header (the real
+     ``headers_from_envelope`` producer never does) — derives the key from the
+     verified body's ``job_id`` (``jobs-run:{job_id}``; spec D9) — ZERO per-route
+     auth code;
   2. runs the FAKE evolve compute synchronously (``core.fake_evolve.run_fake_evolve``
      — fake rewriter + heuristic scorer, no DSPy / no kairos checkout; real
      GEPA + Runner is #35);
@@ -76,8 +79,10 @@ async def jobs_run(request: Request) -> JSONResponse:
         spend_usd=spend_usd,
     )
     if status_code >= 400:
-        # Delivery failed: fail closed so the caller's job retries the dispatch
-        # (the candidate must never silently vanish; spec D3).
+        # Delivery failed — either the gateway returned a non-2xx or the push
+        # never reached it (TRANSPORT_ERROR_STATUS, a 5xx-class sentinel). Either
+        # way fail closed (502) so the caller's job retries the dispatch (the
+        # candidate must never silently vanish; spec D3).
         return JSONResponse(
             {"detail": f"candidate delivery to gateway failed ({status_code})", "job_id": job_id},
             status_code=status.HTTP_502_BAD_GATEWAY,

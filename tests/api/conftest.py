@@ -26,7 +26,7 @@ def gateway_public_key_hex(gateway_keypair):
     return raw.hex()
 
 
-def make_envelope_headers(
+def make_envelope_headers_no_idempotency(
     *,
     body: dict,
     private_key: Ed25519PrivateKey,
@@ -34,7 +34,15 @@ def make_envelope_headers(
     service_id: str,
     ts: datetime | None = None,
 ) -> dict[str, str]:
-    """Build X-Envelope-* + Idempotency-Key headers for a signed POST."""
+    """Build ONLY the seven X-Envelope-* (+ Content-Type) headers for a signed POST.
+
+    This mirrors the production caller's
+    ``optimizer.client.envelope_signer.headers_from_envelope`` EXACTLY — it does
+    NOT add an ``Idempotency-Key``. Use this for /v1/jobs/run, whose idempotency
+    key is derived from the body's ``job_id`` (spec D9). ``make_envelope_headers``
+    (which injects the nonce as a key) is only for routes that genuinely require a
+    caller-supplied Idempotency-Key (e.g. /v1/routing/events/batch).
+    """
     env = sign_envelope(
         body=body,
         key=private_key,
@@ -50,9 +58,28 @@ def make_envelope_headers(
         "X-Envelope-Nonce": env.nonce,
         "X-Envelope-Body-Sha256": env.body_sha256,
         "X-Envelope-Signature": env.signature,
-        "Idempotency-Key": env.nonce,  # nonce doubles as idempotency in tests
         "Content-Type": "application/json",
     }
+
+
+def make_envelope_headers(
+    *,
+    body: dict,
+    private_key: Ed25519PrivateKey,
+    key_id: str,
+    service_id: str,
+    ts: datetime | None = None,
+) -> dict[str, str]:
+    """Build X-Envelope-* + Idempotency-Key headers for a signed POST."""
+    headers = make_envelope_headers_no_idempotency(
+        body=body,
+        private_key=private_key,
+        key_id=key_id,
+        service_id=service_id,
+        ts=ts,
+    )
+    headers["Idempotency-Key"] = headers["X-Envelope-Nonce"]  # nonce doubles as key in tests
+    return headers
 
 
 @pytest_asyncio.fixture

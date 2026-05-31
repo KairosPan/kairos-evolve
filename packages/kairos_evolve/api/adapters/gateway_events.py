@@ -8,10 +8,11 @@ that webhook is best-effort since the gateway pulls full policy state
 periodically as a fallback (per spec §5.5 L3 variant flow).
 
 Slice 9 (#34) adds ``candidate_returned``: the candidate-return delivery is
-NOT best-effort — its failure must propagate so ``/v1/jobs/run`` can answer
-5xx and the caller's job retries (delivery durability via the job queue, spec
-D3). So that method RETURNS the gateway's HTTP status instead of swallowing,
-and re-raises transport errors.
+NOT best-effort — its failure must surface so ``/v1/jobs/run`` can answer 5xx
+and the caller's job retries (delivery durability via the job queue, spec D3).
+So that method RETURNS the gateway's HTTP status (a returned non-2xx) and, on a
+transport error (the gateway was never reached), returns ``TRANSPORT_ERROR_STATUS``
+(a 5xx-class sentinel) instead of swallowing it — the route maps either to 502.
 """
 
 from __future__ import annotations
@@ -26,6 +27,12 @@ from kairos_evolve.core.envelope import sign_envelope
 from kairos_evolve.core.time import Clock
 
 log = logging.getLogger(__name__)
+
+# Sentinel status returned by ``candidate_returned`` when the outbound push
+# never reached the gateway (transport error: ConnectError, timeout, ...). It is
+# in the 5xx class so the route's ``status_code >= 400`` branch maps it to a 502
+# (fail closed → the caller's job retries; spec D3), exactly like a returned 5xx.
+TRANSPORT_ERROR_STATUS = 599
 
 
 class GatewayEventsClient:
@@ -87,8 +94,12 @@ class GatewayEventsClient:
 
         Returns the gateway webhook's HTTP status code so the caller can map a
         non-2xx to a 5xx (job retry). Unlike ``policy_invalidated`` this does NOT
-        swallow delivery failures — a transport error re-raises so the producer
-        route fails closed (a candidate must never silently vanish; spec D3).
+        swallow delivery failures: a returned non-2xx is surfaced, and a transport
+        error (ConnectError/timeout — the gateway was never reached) is caught and
+        reported as ``TRANSPORT_ERROR_STATUS`` (a 5xx-class sentinel) rather than
+        propagating as an unhandled 500. Either way the producer route fails closed
+        so a candidate never silently vanishes (spec D3) — the difference from
+        ``policy_invalidated`` is that here the failure is *reported*, not swallowed.
 
         ``job_id`` is the correlation key the intake replays on (D9). The body is
         D11-clean — only the candidate text + evidence + org binding, no matter.
@@ -113,7 +124,18 @@ class GatewayEventsClient:
         # retried dispatch replays rather than double-delivers.
         headers["Idempotency-Key"] = f"candidate:{job_id}"
         url = f"{self._base_url}/v1/webhooks/jobs-finished"
-        resp = await self._http.post(url, json=body, headers=headers)
+        try:
+            resp = await self._http.post(url, json=body, headers=headers)
+        except httpx.HTTPError as exc:
+            # The push never reached the gateway. Report a 5xx-class sentinel so
+            # the route fails closed (502) instead of letting the error escape as
+            # an unhandled 500 — same fail-closed outcome, but now mapped + logged.
+            log.warning(
+                "jobs-finished webhook delivery failed for job %s: %s",
+                job_id,
+                exc,
+            )
+            return TRANSPORT_ERROR_STATUS
         if resp.status_code >= 400:
             log.warning(
                 "jobs-finished webhook returned %d for job %s: %s",
@@ -140,4 +162,4 @@ def _envelope_headers(env) -> dict[str, str]:
     }
 
 
-__all__ = ["GatewayEventsClient"]
+__all__ = ["TRANSPORT_ERROR_STATUS", "GatewayEventsClient"]

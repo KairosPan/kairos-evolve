@@ -44,7 +44,7 @@ needs to know evolve's public key to verify webhooks — Plan 2B).
 
 ```bash
 modal secret create kairos-evolve-api \
-  KAIROS_EVOLVE_NEON_URL="postgresql://user:pass@host/db?sslmode=require" \
+  KAIROS_EVOLVE_DATABASE_URL="postgresql://user:pass@host/db?sslmode=require" \
   KAIROS_EVOLVE_KEY_ID="K_evolve" \
   KAIROS_EVOLVE_PRIVATE_KEY_HEX="<from above>" \
   KAIROS_EVOLVE_GATEWAY_BASE_URL="https://gateway.example.com" \

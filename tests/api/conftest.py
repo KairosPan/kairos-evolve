@@ -90,7 +90,7 @@ async def asgi_client(
 ) -> AsyncIterator[httpx.AsyncClient]:
     """Real FastAPI app exercised via httpx.AsyncClient + ASGI transport.
 
-    Wires the evolve_db fixture as the Neon URL. Stubs the evolve key. Uses
+    Wires the evolve_db fixture as the database URL. Stubs the evolve key. Uses
     the test gateway public key for envelope verification.
     """
     from kairos_evolve.api.app import build_app
@@ -99,7 +99,7 @@ async def asgi_client(
     info = evolve_db.info
     pg_url = f"postgresql://{info.user}@{info.host}:{info.port}/{info.dbname}"
 
-    monkeypatch.setenv("KAIROS_EVOLVE_NEON_URL", pg_url)
+    monkeypatch.setenv("KAIROS_EVOLVE_DATABASE_URL", pg_url)
     monkeypatch.setenv("KAIROS_EVOLVE_KEY_ID", "K_evolve_test")
     monkeypatch.setenv("KAIROS_EVOLVE_PRIVATE_KEY_HEX", "33" * 32)
     monkeypatch.setenv("KAIROS_EVOLVE_GATEWAY_BASE_URL", "http://gateway-test.invalid/api")

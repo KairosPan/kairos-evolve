@@ -116,7 +116,7 @@ packages/kairos_evolve/
 ├── api/                  evolve-api — FastAPI service (deploy entrypoints under deploy/) (Phase 2A)
 │   ├── app.py            build_app() ASGI factory
 │   ├── middleware/       envelope-verify + idempotency
-│   ├── adapters/         neon pool + gateway events client
+│   ├── adapters/         db pool + gateway events client
 │   └── routes/           health, routing, jobs
 ├── cli/                  Typer entry; depends on core only
 │   ├── main.py

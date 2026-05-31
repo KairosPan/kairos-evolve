@@ -20,8 +20,8 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="", extra="ignore")
 
-    # Neon
-    neon_url: str = Field(alias="KAIROS_EVOLVE_NEON_URL")
+    # Postgres DSN (RDS in prod; any generic Postgres in dev/test)
+    database_url: str = Field(alias="KAIROS_EVOLVE_DATABASE_URL")
 
     # evolve key (signs outgoing envelopes; verifies its own)
     evolve_key_id: str = Field(alias="KAIROS_EVOLVE_KEY_ID")

@@ -15,8 +15,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 from fastapi import FastAPI
 
+from kairos_evolve.api.adapters.db import build_pool
 from kairos_evolve.api.adapters.gateway_events import GatewayEventsClient
-from kairos_evolve.api.adapters.neon import build_pool
 from kairos_evolve.api.middleware.envelope_verify import EnvelopeVerifyMiddleware
 from kairos_evolve.api.middleware.idempotency import IdempotencyMiddleware
 from kairos_evolve.api.routes import health, jobs, routing
@@ -32,7 +32,7 @@ def build_app() -> FastAPI:
         app.state.clock = RealClock()
 
         # Build the Postgres pool
-        app.state.pool = await build_pool(settings.neon_url)
+        app.state.pool = await build_pool(settings.database_url)
 
         # Build the public key registry (only gateway for now; Phase 2B may add
         # more keys e.g. K_inngest when the jobs route is filled in).

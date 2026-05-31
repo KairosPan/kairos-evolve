@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.api.conftest import make_envelope_headers
+from tests.api.conftest import make_envelope_headers, make_envelope_headers_no_idempotency
 
 
 @pytest.mark.asyncio
@@ -64,3 +64,26 @@ async def test_collision_returns_409(asgi_client, gateway_keypair):
     resp = await asgi_client.post("/v1/routing/events/batch", json=body_b, headers=headers_b)
     assert resp.status_code == 409
     assert "idempotency" in resp.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_missing_key_without_job_id_still_rejected(asgi_client, gateway_keypair):
+    """A signed write with no Idempotency-Key AND no body ``job_id`` still 400s.
+
+    The body-derived-key fallback (spec D9) only applies when the verified body
+    carries a ``job_id`` (the /v1/jobs/run path). Routes like events/batch — whose
+    body has no ``job_id`` — must still require a caller-supplied key, so this
+    change doesn't silently weaken the requirement for them.
+    """
+    priv, _ = gateway_keypair
+    body = {"events": [], "batch_id": "00000000-0000-0000-0000-000000000005", "merkle_root": "x"}
+    headers = make_envelope_headers_no_idempotency(
+        body=body,
+        private_key=priv,
+        key_id="K_gw_test",
+        service_id="kairos-gateway",
+    )
+    assert "Idempotency-Key" not in headers
+    resp = await asgi_client.post("/v1/routing/events/batch", json=body, headers=headers)
+    assert resp.status_code == 400
+    assert "idempotency-key" in resp.text.lower()

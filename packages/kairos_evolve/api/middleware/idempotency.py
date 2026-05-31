@@ -1,11 +1,20 @@
-"""Idempotency-Key header middleware.
+"""Idempotency-Key middleware.
 
 After envelope_verify has run (so request.state.body_obj is set), this
-middleware:
-  - looks up the Idempotency-Key in kairos_audit.idempotency_keys
+middleware resolves an idempotency key, then:
+  - looks up the key in kairos_audit.idempotency_keys
   - if hit & request_hash matches: returns cached response with X-Idempotent-Replay: true
   - if hit & request_hash differs: returns 409
   - if miss: runs handler, stores response in idempotency table for replay TTL
+
+Key resolution (spec D9):
+  - if the caller supplied an ``Idempotency-Key`` header, use it;
+  - else, if the verified body carries a ``job_id``, derive a deterministic
+    body key ``jobs-run:{job_id}`` (the candidate-return producer signs the
+    job body but never sends a client key — ``optimizer.client.envelope_signer
+    .headers_from_envelope`` emits only the X-Envelope-* headers). This mirrors
+    the OUTBOUND ``candidate:{job_id}`` key the producer uses for its own push;
+  - else (a write with neither): reject 400, as before.
 
 Applies to write methods only; same BYPASS_PATHS as envelope middleware.
 """
@@ -27,17 +36,27 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         if request.method not in WRITE_METHODS or request.url.path in BYPASS_PATHS:
             return await call_next(request)
 
+        # The verified body the envelope middleware stashed (it runs OUTSIDE this
+        # one, so body_obj is already set for signed writes). Used both to derive
+        # a fallback key and to compute the request hash.
+        body_obj = getattr(request.state, "body_obj", None)
+
         key = request.headers.get("Idempotency-Key")
         if not key:
-            return JSONResponse(
-                {"detail": "Idempotency-Key header required"},
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
+            # No client-supplied key: derive one from the body's correlation id
+            # if present (spec D9 — the candidate-return producer signs the job
+            # body but sends no Idempotency-Key). Otherwise reject the write.
+            job_id = body_obj.get("job_id") if isinstance(body_obj, dict) else None
+            if job_id is not None:
+                key = f"jobs-run:{job_id}"
+            else:
+                return JSONResponse(
+                    {"detail": "Idempotency-Key header required"},
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
 
-        # Compute request_hash from the verified body the envelope middleware
-        # stashed; if envelope middleware didn't run (programmer error), fall
-        # back to raw body bytes.
-        body_obj = getattr(request.state, "body_obj", None)
+        # Compute request_hash from the verified body; if envelope middleware
+        # didn't run (programmer error), fall back to raw body bytes.
         if body_obj is not None:
             body_canon = json.dumps(body_obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
         else:
@@ -90,27 +109,35 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             except json.JSONDecodeError:
                 response_payload = None
 
-            cur = conn.cursor()
-            try:
-                await cur.execute(
-                    """
-                    INSERT INTO kairos_audit.idempotency_keys
-                        (key, request_hash, response_status, response_body_jsonb, created_at, expires_at)
-                    VALUES (%s, %s, %s, %s::jsonb, %s, %s)
-                    ON CONFLICT (key) DO NOTHING
-                    """,
-                    (
-                        key,
-                        request_hash,
-                        response.status_code,
-                        json.dumps(response_payload) if response_payload is not None else None,
-                        clock.now(),
-                        clock.now() + ttl,
-                    ),
-                )
-            finally:
-                await cur.close()
-            await conn.commit()
+            # Only cache SUCCESS (and client-error) responses. A 5xx is
+            # transient (e.g. the /v1/jobs/run candidate push hit a momentarily
+            # down gateway → 502): caching it under the deterministic
+            # ``jobs-run:{job_id}`` key would make every retry replay the cached
+            # 5xx without re-running compute, so the job exhausts its attempts
+            # and the candidate silently vanishes — defeating the durability
+            # contract (a failed dispatch MUST re-run on retry).
+            if response.status_code < 500:
+                cur = conn.cursor()
+                try:
+                    await cur.execute(
+                        """
+                        INSERT INTO kairos_audit.idempotency_keys
+                            (key, request_hash, response_status, response_body_jsonb, created_at, expires_at)
+                        VALUES (%s, %s, %s, %s::jsonb, %s, %s)
+                        ON CONFLICT (key) DO NOTHING
+                        """,
+                        (
+                            key,
+                            request_hash,
+                            response.status_code,
+                            json.dumps(response_payload) if response_payload is not None else None,
+                            clock.now(),
+                            clock.now() + ttl,
+                        ),
+                    )
+                finally:
+                    await cur.close()
+                await conn.commit()
 
             return JSONResponse(
                 response_payload or {},

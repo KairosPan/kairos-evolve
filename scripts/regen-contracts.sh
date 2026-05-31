@@ -8,7 +8,8 @@
 #
 # Phase 1+2A mirrors envelope.json and routing.json from contracts/jsonschemas/ and the
 # 5 envelope/v1/*.json fixtures. L3-L6 schemas are pulled in their respective
-# implementation phases when their consumers land.
+# implementation phases when their consumers land. Slice 9 (#34) adds candidate.json
+# (the candidate-return body) — its consumer (the /v1/jobs/run producer) lands now.
 
 set -euo pipefail
 
@@ -25,9 +26,9 @@ fi
 
 THIS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Mirror jsonschemas (Phase 1+2A: envelope + routing)
+# Mirror jsonschemas (Phase 1+2A: envelope + routing; Slice 9 #34: candidate)
 mkdir -p "$THIS_DIR/contracts/jsonschemas"
-for schema in envelope routing; do
+for schema in envelope routing candidate; do
   cp "$KAIROS_REPO/packages/harness/src/kairos_harness/optimizer/contracts/jsonschemas/${schema}.json" \
      "$THIS_DIR/contracts/jsonschemas/${schema}.json"
 done
@@ -42,4 +43,4 @@ done
 # Print provenance so the commit message can record what was synced
 ( cd "$KAIROS_REPO" && echo "synced from kairos $(git rev-parse HEAD) on $(date -u +%FT%TZ)" )
 
-echo "OK: mirrored 2 jsonschemas + 5 envelope fixtures"
+echo "OK: mirrored 3 jsonschemas + 5 envelope fixtures"

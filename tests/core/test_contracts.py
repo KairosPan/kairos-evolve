@@ -15,6 +15,7 @@ def test_contracts_root_reexports_envelope():
         "FUTURE_SKEW",
         "RoutingEvent",
         "RoutingPolicy",
+        "CandidateReturn",
     }
     actual = set(contracts.__all__)
     missing = expected - actual

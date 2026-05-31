@@ -1,0 +1,17 @@
+# Keep the App Runner build context lean + reproducible (mirrors the gateway's
+# clean-context build hygiene — AppleDouble ._* files break some builders).
+.git
+.github
+.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+._*
+**/._*
+.DS_Store
+tests
+docs
+deploy
+# NOTE: do NOT exclude README.md — pyproject `readme = "README.md"` makes the
+# hatchling build read it, so excluding *.md breaks `uv sync`.

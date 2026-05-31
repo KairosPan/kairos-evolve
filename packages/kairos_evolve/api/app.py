@@ -1,8 +1,8 @@
 """FastAPI app assembly: settings → pool → public-key registry → middleware → routes.
 
 Exposed as `build_app() -> FastAPI` so tests can construct fresh instances.
-The deployment entrypoint imports/calls `build_app()` (currently deploy/modal/app.py;
-the AWS App Runner migration target invokes it via `uvicorn --factory`).
+The deployment entrypoint imports/calls `build_app()`: AWS App Runner runs
+`uvicorn kairos_evolve.api.app:build_app --factory` (see deploy/aws/ + the Dockerfile).
 """
 
 from __future__ import annotations
@@ -69,7 +69,6 @@ def build_app() -> FastAPI:
     return app
 
 
-# Module-level None — the deploy entrypoint imports build_app() and calls it
-# (Modal @asgi_app today; the App Runner target uses `uvicorn --factory build_app`).
-# `app = None` keeps module import side-effect-free.
+# Module-level None — App Runner runs `uvicorn ...app:build_app --factory`, so
+# nothing imports a module-level `app`. `app = None` keeps import side-effect-free.
 app = None

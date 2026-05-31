@@ -1,0 +1,45 @@
+{
+  "$defs": {
+    "CandidateReturn": {
+      "description": "One evolved skill-body candidate returned from kairos-evolve.",
+      "properties": {
+        "candidate_text": {
+          "title": "Candidate Text",
+          "type": "string"
+        },
+        "evidence": {
+          "additionalProperties": true,
+          "title": "Evidence",
+          "type": "object"
+        },
+        "job_id": {
+          "title": "Job Id",
+          "type": "string"
+        },
+        "org_id": {
+          "title": "Org Id",
+          "type": "string"
+        },
+        "skill_id": {
+          "title": "Skill Id",
+          "type": "string"
+        },
+        "spend_usd": {
+          "title": "Spend Usd",
+          "type": "number"
+        }
+      },
+      "required": [
+        "job_id",
+        "org_id",
+        "skill_id",
+        "candidate_text",
+        "spend_usd"
+      ],
+      "title": "CandidateReturn",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "kairos.optimizer.contracts.candidate"
+}

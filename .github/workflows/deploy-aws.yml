@@ -1,0 +1,150 @@
+name: deploy-aws
+
+on:
+  # workflow_dispatch must be triggered from `main` or a numeric-semver tag
+  # (v0, v1.2.3, …) — the OIDC trust policy in deploy/aws/terraform/iam.tf
+  # rejects other refs.
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "ECR image tag (defaults to short SHA)"
+        required: false
+  push:
+    tags:
+      - 'v[0-9]*'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: kairos-evolve-api
+  SERVICE_NAME: kairos-evolve-prod-api
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: tag
+        # Pass the input through env: rather than interpolating `${{ ... }}`
+        # directly into the shell — the latter renders BEFORE the shell parses,
+        # so a crafted input could execute arbitrary AWS CLI commands with the
+        # deploy role's permissions.
+        env:
+          INPUT_IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          TAG="$INPUT_IMAGE_TAG"
+          if [ -z "$TAG" ]; then
+            TAG=$(git rev-parse --short HEAD)
+          fi
+          echo "image_tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          IMAGE="${REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
+          # The evolve-api Dockerfile lives at the repo root (the gateway's is at
+          # deploy/Dockerfile — different repo layout).
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Resolve service ARN
+        run: |
+          set -euo pipefail
+          SERVICE_ARN=$(aws apprunner list-services \
+            --query "ServiceSummaryList[?ServiceName=='${SERVICE_NAME}'].ServiceArn" \
+            --output text)
+          if [ -z "$SERVICE_ARN" ] || [ "$SERVICE_ARN" = "None" ]; then
+            echo "Service ${SERVICE_NAME} not found in region ${AWS_REGION}"
+            exit 1
+          fi
+          echo "SERVICE_ARN=$SERVICE_ARN" >> "$GITHUB_ENV"
+
+      - name: Update App Runner service (merge image into existing config)
+        run: |
+          set -euo pipefail
+          # UpdateService's --source-configuration REPLACES the nested
+          # ImageRepository struct wholesale. Passing only ImageIdentifier would
+          # wipe ImageConfiguration (port, env vars, secret ARNs) +
+          # AuthenticationConfiguration that Terraform set up. So: fetch the
+          # current SourceConfiguration, swap only ImageIdentifier, PUT it back.
+          CURRENT=$(aws apprunner describe-service \
+            --service-arn "$SERVICE_ARN" \
+            --query "Service.SourceConfiguration" \
+            --output json)
+          NEW=$(echo "$CURRENT" | jq --arg img "$IMAGE" \
+            '.ImageRepository.ImageIdentifier = $img')
+          OP_ID=$(aws apprunner update-service \
+            --service-arn "$SERVICE_ARN" \
+            --source-configuration "$NEW" \
+            --query "OperationId" --output text)
+          echo "OP_ID=$OP_ID" >> "$GITHUB_ENV"
+
+      - name: Wait for rollout + verify image digest
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do  # 60 * 10s = 10 min
+            STATUS=$(aws apprunner describe-service \
+              --service-arn "$SERVICE_ARN" \
+              --query "Service.Status" --output text)
+            DEPLOYED_IMG=$(aws apprunner describe-service \
+              --service-arn "$SERVICE_ARN" \
+              --query "Service.SourceConfiguration.ImageRepository.ImageIdentifier" \
+              --output text)
+            echo "[$i] Status=$STATUS DeployedImage=$DEPLOYED_IMG"
+            if [ "$STATUS" = "RUNNING" ] && [ "$DEPLOYED_IMG" = "$IMAGE" ]; then
+              echo "Rollout complete: serving $IMAGE"
+              break
+            fi
+            if [ "$STATUS" = "CREATE_FAILED" ] || [ "$STATUS" = "DELETE_FAILED" ]; then
+              echo "App Runner reports terminal failure status: $STATUS"
+              exit 1
+            fi
+            sleep 10
+          done
+          if [ "$STATUS" != "RUNNING" ] || [ "$DEPLOYED_IMG" != "$IMAGE" ]; then
+            echo "Service did not reach RUNNING with new image within 10 min"
+            exit 1
+          fi
+
+      - name: Smoke-test /readyz against new image
+        run: |
+          set -euo pipefail
+          # /readyz is DB-aware (SELECT 1) — a healthy response proves the
+          # RDS DSN secret + connectivity are wired, not just that the process
+          # is up.
+          SERVICE_URL=$(aws apprunner describe-service \
+            --service-arn "$SERVICE_ARN" \
+            --query "Service.ServiceUrl" --output text)
+          for i in $(seq 1 30); do
+            STATUS=$(curl -sS -o /dev/null -w "%{http_code}" \
+              --max-time 10 "https://${SERVICE_URL}/readyz" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Ready after $((i * 5))s"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "/readyz never returned 200 after rollout"
+          exit 1

@@ -1,8 +1,8 @@
 """FastAPI app assembly: settings → pool → public-key registry → middleware → routes.
 
 Exposed as `build_app() -> FastAPI` so tests can construct fresh instances.
-The deployment entrypoint imports/calls `build_app()` (currently deploy/modal/app.py;
-the AWS App Runner migration target invokes it via `uvicorn --factory`).
+The deployment entrypoint imports/calls `build_app()`: AWS App Runner runs
+`uvicorn kairos_evolve.api.app:build_app --factory` (see deploy/aws/ + the Dockerfile).
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 from fastapi import FastAPI
 
+from kairos_evolve.api.adapters.db import build_pool
 from kairos_evolve.api.adapters.gateway_events import GatewayEventsClient
-from kairos_evolve.api.adapters.neon import build_pool
 from kairos_evolve.api.middleware.envelope_verify import EnvelopeVerifyMiddleware
 from kairos_evolve.api.middleware.idempotency import IdempotencyMiddleware
 from kairos_evolve.api.routes import health, jobs, routing
@@ -32,7 +32,7 @@ def build_app() -> FastAPI:
         app.state.clock = RealClock()
 
         # Build the Postgres pool
-        app.state.pool = await build_pool(settings.neon_url)
+        app.state.pool = await build_pool(settings.database_url)
 
         # Build the public key registry (only gateway for now; Phase 2B may add
         # more keys e.g. K_inngest when the jobs route is filled in).
@@ -69,7 +69,6 @@ def build_app() -> FastAPI:
     return app
 
 
-# Module-level None — the deploy entrypoint imports build_app() and calls it
-# (Modal @asgi_app today; the App Runner target uses `uvicorn --factory build_app`).
-# `app = None` keeps module import side-effect-free.
+# Module-level None — App Runner runs `uvicorn ...app:build_app --factory`, so
+# nothing imports a module-level `app`. `app = None` keeps import side-effect-free.
 app = None

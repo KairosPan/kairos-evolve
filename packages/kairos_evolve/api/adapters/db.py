@@ -2,8 +2,11 @@
 
 Connection pool is owned by the FastAPI app's lifespan and injected into
 routes via Depends(). Pool config is kept small because each service instance
-handles modest concurrency (one pool per Modal container / App Runner instance;
-revisit sizing for the App Runner profile during migration).
+handles modest concurrency (one pool per App Runner instance; revisit sizing
+for the App Runner profile during migration).
+
+The DSN is a generic Postgres conninfo (RDS in prod; any Postgres in dev/test),
+so this adapter is platform-neutral.
 """
 
 from __future__ import annotations
@@ -15,10 +18,12 @@ import psycopg
 from psycopg_pool import AsyncConnectionPool
 
 
-async def build_pool(neon_url: str, *, min_size: int = 1, max_size: int = 8) -> AsyncConnectionPool:
+async def build_pool(
+    database_url: str, *, min_size: int = 1, max_size: int = 8
+) -> AsyncConnectionPool:
     """Open an async psycopg connection pool, ready for use."""
     pool = AsyncConnectionPool(
-        conninfo=neon_url,
+        conninfo=database_url,
         min_size=min_size,
         max_size=max_size,
         open=False,

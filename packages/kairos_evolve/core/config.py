@@ -1,7 +1,7 @@
 """Configuration resolution for kairos-evolve.
 
 Phase 1: minimal — just enough to find a kairos checkout and detect optional
-LLM credentials. Phase 2+ adds Neon credentials, key vault references, etc.
+LLM credentials. Phase 2+ adds Postgres credentials, key vault references, etc.
 """
 
 from __future__ import annotations

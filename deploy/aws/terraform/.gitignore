@@ -1,0 +1,7 @@
+# Terraform working dir + state — never commit. The provider lock file
+# (.terraform.lock.hcl) IS committed to pin provider versions.
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+crash.log

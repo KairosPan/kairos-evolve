@@ -1,10 +1,9 @@
 """evolve-api settings loaded from env vars via pydantic-settings.
 
-Production: env vars are injected from the secret store by the deploy platform.
-The current scaffold (deploy/modal/) injects them from a Modal secret
-(Infisical-backed); the AWS App Runner migration target injects them via Secrets
-Manager runtime_environment_secrets (to match the gateway). Tests set them via
-`monkeypatch.setenv`.
+Production: env vars are injected by AWS App Runner from Secrets Manager
+(`runtime_environment_secrets` in deploy/aws/terraform/apprunner.tf — the DB DSN
++ the evolve private key; the rest are plain runtime_environment_variables).
+Tests set them via `monkeypatch.setenv`.
 """
 
 from __future__ import annotations
@@ -20,8 +19,8 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="", extra="ignore")
 
-    # Neon
-    neon_url: str = Field(alias="KAIROS_EVOLVE_NEON_URL")
+    # Postgres DSN (RDS in prod; any generic Postgres in dev/test)
+    database_url: str = Field(alias="KAIROS_EVOLVE_DATABASE_URL")
 
     # evolve key (signs outgoing envelopes; verifies its own)
     evolve_key_id: str = Field(alias="KAIROS_EVOLVE_KEY_ID")

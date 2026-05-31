@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars and fill in. Region defaults to us-east-1 (co-located
+# with the gateway). project_name/environment default to kairos-evolve/prod.
+
+github_repo = "KairosPan/kairos-evolve"
+
+# The gateway's App Runner URL (where the evolve-api POSTs signed callbacks):
+gateway_base_url = "https://<gateway-id>.us-east-1.awsapprunner.com"
+
+# The gateway's ed25519 PUBLIC key (hex) — non-secret; used to verify inbound
+# gateway-signed envelopes. Read it from the gateway's key material.
+gateway_public_key_hex = "<gateway-ed25519-public-key-hex>"
+
+# Defaults (override only if needed):
+# region                  = "us-east-1"
+# evolve_image_tag        = "latest"
+# db_instance_class       = "db.t4g.micro"
+# db_allocated_storage_gb = 20
+# gateway_key_id          = "K_gw"
+# evolve_key_id           = "K_evolve"

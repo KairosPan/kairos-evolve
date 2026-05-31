@@ -19,7 +19,7 @@ The split between this repo and kairos main:
 | Hosted product (Studio UI, Harness, Gateway, Workflow Engine, Sandbox) | [kairos main](https://github.com/KairosPan/kairos) |
 | Default skill library + connectors | kairos main |
 | Optimizer L1 prompts evolution (CLI + DSPy/GEPA) | **kairos-evolve** (this repo) |
-| Optimizer L3 routing service (`evolve-api` on Modal) | **kairos-evolve** (this repo) |
+| Optimizer L3 routing service (`evolve-api` on AWS App Runner; Modal scaffold legacy, pending migration to match the gateway) | **kairos-evolve** (this repo) |
 | Optimizer L3 client + dispatch (in-process inside kairos main's harness) | kairos main (`packages/harness/src/kairos_harness/optimizer/client/`) |
 | Future L2 retrieval / L4 models / L5 synthesis / L6 selfmod | **kairos-evolve** (this repo) |
 | Envelope wire format (ed25519 sign/verify, Merkle) | both repos (peer implementations, contract-tested) |
@@ -48,12 +48,12 @@ The CLI deliberately does not auto-write evolved prompts back into kairos main; 
 
 L3 chooses which adapter / model gets a given step, scoped per `(skill, jurisdiction, …)`. Two-side architecture:
 
-- **Service side (`evolve-api`)** — FastAPI on Modal, owns `routing_policy_versions`, `routing_events`, `kairos_audit.idempotency_keys`. Accepts signed envelopes; emits `policy-invalidated` webhooks.
+- **Service side (`evolve-api`)** — FastAPI on AWS App Runner (matching the kairos gateway; the present deploy scaffold is Modal, migration pending), owns `routing_policy_versions`, `routing_events`, `kairos_audit.idempotency_keys`. Accepts signed envelopes; emits `policy-invalidated` webhooks.
 - **Client side (in kairos main)** — `EnvelopeSigner` (K_gw), `EvolveApiClient` (sync httpx), `RoutingCache` (in-process `scope_key → ActivePolicy`), `RemoteOptimizerL3` (drop-in for the in-tree `OptimizerL3`).
 
 | Phase | What ships | Status |
 | --- | --- | --- |
-| **Phase 2A** | `evolve-api` Modal-deployable service, signed envelopes, routing-event ingestion, policy versioning, contract tests against kairos-main DDL fixtures | ✅ Merged (this repo PR #1) |
+| **Phase 2A** | `evolve-api` Modal-deployable service (AWS App Runner migration tracked separately — see the Modal→AWS plan), signed envelopes, routing-event ingestion, policy versioning, contract tests against kairos-main DDL fixtures | ✅ Merged (this repo PR #1) |
 | **Phase 2B** | kairos-main thin client tree + flag dispatch + gateway webhook middleware + `policy-invalidated` route + DEPLOY.md rollout | 🟡 Plan in kairos main PR #8; 16 implementation PRs to follow |
 | **Phase 2C (planned)** | Flag flip from `KAIROS_OPTIMIZER_REMOTE=0` to `=1` as default; in-tree `OptimizerL3` removal | 🔵 Scheduled after one week of clean staging on Phase 2B |
 

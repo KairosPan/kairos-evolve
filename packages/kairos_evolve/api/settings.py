@@ -1,7 +1,10 @@
 """evolve-api settings loaded from env vars via pydantic-settings.
 
-Production: env vars come from Infisical secrets injected by Modal at deploy
-time. Tests set them via `monkeypatch.setenv`.
+Production: env vars are injected from the secret store by the deploy platform.
+The current scaffold (deploy/modal/) injects them from a Modal secret
+(Infisical-backed); the AWS App Runner migration target injects them via Secrets
+Manager runtime_environment_secrets (to match the gateway). Tests set them via
+`monkeypatch.setenv`.
 """
 
 from __future__ import annotations
